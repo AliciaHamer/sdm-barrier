@@ -2,14 +2,13 @@
 title: "Barrier_Exercise"
 author: "Alicia Hamer"
 format: 
-  html:
-    embed-resources: true
+  gfm:
+    output-file: "README.md"
 editor: visual
-
 execute: 
   echo: true
   eval: true
-  cache: false 
+  cache: false
 ---
 
 # Case study: shellfish in two tidal inlets separated by a barrier
@@ -299,7 +298,7 @@ Build a regular SPDE mesh first, then derive a barrier mesh from it by passing t
 ```{r mesh}
 
 #first the regular mesh
-mesh <- make_mesh(dat, xy_cols = c("X", "Y"), cutoff = 0.75)
+mesh <- sdmTMB::make_mesh(dat, xy_cols = c("X", "Y"), cutoff = 0.75)
 plot(mesh); cat("Mesh vertices:", mesh$mesh$n, "\n")
 plot(mesh$mesh, main = "Regular mesh", asp = 1)
 

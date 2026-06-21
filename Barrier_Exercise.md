@@ -555,7 +555,7 @@ DHARMa::testResiduals(r1)
         Asymptotic one-sample Kolmogorov-Smirnov test
 
     data:  simulationOutput$scaledResiduals
-    D = 0.037486, p-value = 6.659e-06
+    D = 0.037564, p-value = 6.314e-06
     alternative hypothesis: two-sided
 
 
@@ -565,7 +565,7 @@ DHARMa::testResiduals(r1)
         simulated
 
     data:  simulationOutput
-    dispersion = 0.84847, p-value = 0.3667
+    dispersion = 0.84918, p-value = 0.52
     alternative hypothesis: two.sided
 
 
@@ -575,14 +575,14 @@ DHARMa::testResiduals(r1)
         expectations
 
     data:  simulationOutput
-    outliers at both margin(s) = 64, observations = 4488, p-value =
-    3.706e-08
+    outliers at both margin(s) = 51, observations = 4488, p-value =
+    0.0003167
     alternative hypothesis: true probability of success is not equal to 0.006644518
     95 percent confidence interval:
-     0.01099899 0.01817398
+     0.008472354 0.014914317
     sample estimates:
     frequency of outliers (expected: 0.00664451827242525 ) 
-                                                0.01426025 
+                                                0.01136364 
 
 ``` r
 DHARMa::testResiduals(r2)
@@ -595,7 +595,7 @@ DHARMa::testResiduals(r2)
         Asymptotic one-sample Kolmogorov-Smirnov test
 
     data:  simulationOutput$scaledResiduals
-    D = 0.030802, p-value = 0.0004005
+    D = 0.046339, p-value = 8.519e-09
     alternative hypothesis: two-sided
 
 
@@ -605,7 +605,7 @@ DHARMa::testResiduals(r2)
         simulated
 
     data:  simulationOutput
-    dispersion = 0.91362, p-value = 0.7133
+    dispersion = 0.98377, p-value = 0.8733
     alternative hypothesis: two.sided
 
 
@@ -615,14 +615,14 @@ DHARMa::testResiduals(r2)
         expectations
 
     data:  simulationOutput
-    outliers at both margin(s) = 46, observations = 4488, p-value =
-    0.005541
+    outliers at both margin(s) = 59, observations = 4488, p-value =
+    1.993e-06
     alternative hypothesis: true probability of success is not equal to 0.006644518
     95 percent confidence interval:
-     0.007513461 0.013648047
+     0.01002213 0.01692522
     sample estimates:
     frequency of outliers (expected: 0.00664451827242525 ) 
-                                                0.01024955 
+                                                0.01314617 
 
 ``` r
 #DHARMa::testSpatialAutocorrelation(r1, x = dat$X, y = dat$Y)
