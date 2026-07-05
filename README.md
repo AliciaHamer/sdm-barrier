@@ -19,7 +19,7 @@ take the sample.
 We fit two otherwise-identical `sdmTMB` models: one on a regular SPDE
 mesh and one on a barrier mesh, and compare.
 
-# Information on Survey:
+# 0. Information on Survey:
 
 Monster Identifier: replicate.id Monster surface area:
 
@@ -33,9 +33,9 @@ probably less suitable).
 ``` r
 #    Settings
 
-Surveyx        = c("KokkelSurveyVoorjaar", "KokkelSurveyNajaar", "Oestersurvey")[1] 
+Surveyx        = c("KokkelSurveyVoorjaar", "KokkelSurveyNajaar", "Oestersurvey")[1] #I removed other surveys so this does not do anything right now
 crs_chosen     =    4326   #WGS84
-Species_chosen = c("Cerastoderma edule", "Macoma balthica", "Ruditapes philippinarum", "Abra tenuis")[1]
+Species_chosen = c("Cerastoderma edule", "Macoma balthica", "Ruditapes philippinarum", "Abra tenuis")[3]
 ```
 
 ## Load libraries
@@ -62,13 +62,13 @@ table.
 
 ``` r
 #Oosterschelde
-df_WOT_OS <- read_csv(paste0(path, "/data/df_WOT_os.csv")) %>% 
+df_WOT_OS <- read_csv(paste0(path, "/data/SpeciesData/ShelfishSurvey/df_WOT_os.csv")) %>% 
   dplyr::mutate(locatie.nr = as.character(locatie.nr)) %>% 
   dplyr::mutate(Systeem = "Oosterschelde")
 
 #Westerschelde 
 #cutting of the Waddensea samples (They belong to the same survey as the Westerschelde but aren't part of the case study)
-df_WOT_WS <- read_csv(paste0(path, "/data/df_WOT_ws.csv")) %>% 
+df_WOT_WS <- read_csv(paste0(path, "/data/SpeciesData/ShelfishSurvey/df_WOT_ws.csv")) %>% 
   dplyr::filter(Latitude < 52.0) %>% 
   dplyr::mutate(locatie.nr = as.character(locatie.nr)) %>% 
   dplyr::mutate(Systeem = "Westerschelde")
@@ -106,8 +106,8 @@ use in plotting and in the barrier mesh.
 
 ``` r
 #Emersion time       (Unit is percentage % of time emerged)
-dvd_OS       <- terra::rast(paste0(path, "/Data/Rasters_EmersionTimes", "/edvd_os_2021.tif"))
-dvd_WS       <- terra::rast(paste0(path, "/Data/Rasters_EmersionTimes", "/edvd_ws_2022.tif"))
+dvd_OS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EmersionTimes", "/edvd_os_2021.tif"))
+dvd_WS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EmersionTimes", "/edvd_ws_2022.tif"))
 
 #convert from rd new to wgs84
 dvd <- terra::merge(terra::sprc(dvd_OS, dvd_WS))
@@ -118,11 +118,11 @@ breaks <- c(0,5,10,15,20,25,30,35,40,45,50,60,70,80,90,100)
 
 
 #Flow Velocity      (Unit is m/sec)
-evmax_OS       <- terra::rast(paste0(path, "/Data/Rasters_EvMax", "/evmax_os_2021.tif"))
+evmax_OS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EvMax", "/evmax_os_2021.tif"))
 evmax_OS <- terra::resample(evmax_OS, dvd_OS, method = "bilinear")  # align grids
 evmax_OS <- terra::mask(evmax_OS, dvd_OS)
 
-evmax_WS <- terra::rast(paste0(path, "/Data/Rasters_EvMax", "/evmax_ws_2022.tif"))
+evmax_WS <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EvMax", "/evmax_ws_2022.tif"))
 evmax_WS <- terra::resample(evmax_WS, dvd_WS, method = "bilinear") 
 evmax_WS <- terra::mask(evmax_WS, dvd_WS)
 
@@ -133,11 +133,11 @@ ev_max <- terra::project(ev_max, "EPSG:4326", method = "bilinear")
 ev_max <- ev_max/100 
 
 #Barrier_Shapefile   -> this marks the tidal flats as barriers and that is not what we want
-Barrier            <- st_read(paste0(path, "/Data/Shapefile_Boundary", "/Nederland.shp")) 
+Barrier            <- st_read(paste0(path, "/Data/EnvironData/Shapefile_Boundary", "/Nederland.shp")) 
 ```
 
     Reading layer `Nederland' from data source 
-      `/Users/aliciahamer/Library/CloudStorage/OneDrive-WageningenUniversity&Research/20xx_Overige Projecten/Curssussen/WKFISHDISH/Tor B - SDM methodology and good practices/Theme-2/CaseStudy_Barrier/sdm-barrier/Data/Shapefile_Boundary/Nederland.shp' 
+      `/Users/aliciahamer/Library/CloudStorage/OneDrive-WageningenUniversity&Research/20xx_Overige Projecten/Curssussen/WKFISHDISH/Tor B - SDM methodology and good practices/Theme-2/CaseStudy_Barrier/sdm-barrier/Data/EnvironData/Shapefile_Boundary/Nederland.shp' 
       using driver `ESRI Shapefile'
     Simple feature collection with 37 features and 4 fields
     Geometry type: MULTIPOLYGON
@@ -310,7 +310,7 @@ cat("Events with cockles:", sum(dat$count > 0),
     " | true zeros:", sum(dat$count == 0), "\n")
 ```
 
-    Events with cockles: 2940  | true zeros: 1549 
+    Events with cockles: 1100  | true zeros: 3389 
 
 ``` r
 dat <- dat %>%
@@ -466,28 +466,28 @@ print(fit_plain)
      
     Conditional model:
                       coef.est coef.se
-    (Intercept)           2.17    0.33
-    poly(dvd_s, 2)1      34.72    4.31
-    poly(dvd_s, 2)2     -33.03    2.91
-    poly(evmax_s, 2)1    -0.23    4.73
-    poly(evmax_s, 2)2    -9.66    4.13
-    gearOverig            0.13    0.12
-    gearSteekbuis         0.47    0.37
-    fYear2015            -0.28    0.11
-    fYear2016            -0.17    0.11
-    fYear2017            -0.03    0.11
-    fYear2018             0.24    0.11
-    fYear2019             0.37    0.11
-    fYear2020             0.59    0.11
-    fYear2021            -0.52    0.11
-    fYear2022             0.31    0.11
-    fYear2023             0.75    0.11
-    fYear2024             0.41    0.11
+    (Intercept)          -1.65    0.52
+    poly(dvd_s, 2)1      33.35    8.79
+    poly(dvd_s, 2)2     -17.74    5.75
+    poly(evmax_s, 2)1   -56.58   15.63
+    poly(evmax_s, 2)2   -66.61   14.96
+    gearOverig           -0.65    0.22
+    gearSteekbuis         0.10    0.96
+    fYear2015             0.86    0.24
+    fYear2016             1.47    0.23
+    fYear2017             1.31    0.24
+    fYear2018             1.61    0.23
+    fYear2019             1.76    0.23
+    fYear2020             1.99    0.23
+    fYear2021             1.94    0.23
+    fYear2022             1.97    0.23
+    fYear2023             2.56    0.23
+    fYear2024             2.82    0.23
 
-    Dispersion parameter: 0.69
-    Matérn range: 3.68
-    Spatial SD: 2.27
-    ML criterion at convergence: 10869.842
+    Dispersion parameter: 0.32
+    Matérn range: 4.06
+    Spatial SD: 2.95
+    ML criterion at convergence: 4352.509
 
     See ?tidy.sdmTMB to extract these values as a data frame.
 
@@ -503,28 +503,28 @@ print(fit_barrier)
      
     Conditional model:
                       coef.est coef.se
-    (Intercept)           1.88    0.32
-    poly(dvd_s, 2)1      35.56    4.26
-    poly(dvd_s, 2)2     -33.73    2.88
-    poly(evmax_s, 2)1    -0.19    4.76
-    poly(evmax_s, 2)2    -9.69    4.18
-    gearOverig            0.12    0.12
-    gearSteekbuis         0.49    0.37
-    fYear2015            -0.27    0.11
-    fYear2016            -0.16    0.11
-    fYear2017            -0.03    0.11
-    fYear2018             0.25    0.11
-    fYear2019             0.38    0.11
-    fYear2020             0.60    0.11
-    fYear2021            -0.51    0.11
-    fYear2022             0.32    0.11
-    fYear2023             0.76    0.11
-    fYear2024             0.42    0.11
+    (Intercept)          -2.00    0.57
+    poly(dvd_s, 2)1      34.72    8.91
+    poly(dvd_s, 2)2     -17.24    5.75
+    poly(evmax_s, 2)1   -56.57   15.93
+    poly(evmax_s, 2)2   -68.61   15.21
+    gearOverig           -0.65    0.23
+    gearSteekbuis         0.13    0.96
+    fYear2015             0.86    0.24
+    fYear2016             1.46    0.23
+    fYear2017             1.31    0.24
+    fYear2018             1.62    0.23
+    fYear2019             1.77    0.23
+    fYear2020             1.98    0.23
+    fYear2021             1.94    0.23
+    fYear2022             1.98    0.23
+    fYear2023             2.56    0.23
+    fYear2024             2.82    0.23
 
-    Dispersion parameter: 0.69
-    Matérn range: 4.01
-    Spatial SD: 1.98
-    ML criterion at convergence: 10865.124
+    Dispersion parameter: 0.32
+    Matérn range: 4.20
+    Spatial SD: 2.64
+    ML criterion at convergence: 4358.062
 
     See ?tidy.sdmTMB to extract these values as a data frame.
 
@@ -534,8 +534,8 @@ AIC(fit_plain, fit_barrier)
 ```
 
                 df      AIC
-    fit_plain   20 21779.68
-    fit_barrier 20 21770.25
+    fit_plain   20 8745.018
+    fit_barrier 20 8756.123
 
 ``` r
 #DHARMa residuals  
@@ -555,7 +555,7 @@ DHARMa::testResiduals(r1)
         Asymptotic one-sample Kolmogorov-Smirnov test
 
     data:  simulationOutput$scaledResiduals
-    D = 0.037486, p-value = 6.659e-06
+    D = 0.014023, p-value = 0.3406
     alternative hypothesis: two-sided
 
 
@@ -565,7 +565,7 @@ DHARMa::testResiduals(r1)
         simulated
 
     data:  simulationOutput
-    dispersion = 0.84847, p-value = 0.3667
+    dispersion = 0.80153, p-value = 0.9133
     alternative hypothesis: two.sided
 
 
@@ -575,14 +575,13 @@ DHARMa::testResiduals(r1)
         expectations
 
     data:  simulationOutput
-    outliers at both margin(s) = 64, observations = 4488, p-value =
-    3.706e-08
+    outliers at both margin(s) = 40, observations = 4488, p-value = 0.06566
     alternative hypothesis: true probability of success is not equal to 0.006644518
     95 percent confidence interval:
-     0.01099899 0.01817398
+     0.006374749 0.012116924
     sample estimates:
     frequency of outliers (expected: 0.00664451827242525 ) 
-                                                0.01426025 
+                                               0.008912656 
 
 ``` r
 DHARMa::testResiduals(r2)
@@ -595,7 +594,7 @@ DHARMa::testResiduals(r2)
         Asymptotic one-sample Kolmogorov-Smirnov test
 
     data:  simulationOutput$scaledResiduals
-    D = 0.030802, p-value = 0.0004005
+    D = 0.015741, p-value = 0.2161
     alternative hypothesis: two-sided
 
 
@@ -605,7 +604,7 @@ DHARMa::testResiduals(r2)
         simulated
 
     data:  simulationOutput
-    dispersion = 0.91362, p-value = 0.7133
+    dispersion = 0.60995, p-value = 0.58
     alternative hypothesis: two.sided
 
 
@@ -615,19 +614,39 @@ DHARMa::testResiduals(r2)
         expectations
 
     data:  simulationOutput
-    outliers at both margin(s) = 46, observations = 4488, p-value =
-    0.005541
+    outliers at both margin(s) = 41, observations = 4488, p-value = 0.05263
     alternative hypothesis: true probability of success is not equal to 0.006644518
     95 percent confidence interval:
-     0.007513461 0.013648047
+     0.006563523 0.012373090
     sample estimates:
     frequency of outliers (expected: 0.00664451827242525 ) 
-                                                0.01024955 
+                                               0.009135472 
 
 ``` r
 #DHARMa::testSpatialAutocorrelation(r1, x = dat$X, y = dat$Y)
 #DHARMa::testSpatialAutocorrelation(r2, x = dat$X, y = dat$Y)
+
+#S
+tidy(fit_plain,   "ran_pars", conf.int = TRUE)
 ```
+
+    # A tibble: 3 × 5
+      term    estimate std.error conf.low conf.high
+      <chr>      <dbl>     <dbl>    <dbl>     <dbl>
+    1 range      4.06     0.738     2.84      5.80 
+    2 phi        0.319    0.0158    0.289     0.351
+    3 sigma_O    2.95     0.341     2.35      3.70 
+
+``` r
+tidy(fit_barrier, "ran_pars", conf.int = TRUE)
+```
+
+    # A tibble: 3 × 5
+      term    estimate std.error conf.low conf.high
+      <chr>      <dbl>     <dbl>    <dbl>     <dbl>
+    1 range      4.20     0.770     2.94      6.02 
+    2 phi        0.318    0.0158    0.288     0.350
+    3 sigma_O    2.64     0.357     2.03      3.44 
 
 ## Prediction
 

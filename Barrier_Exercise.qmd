@@ -19,7 +19,7 @@ The data come from the annual intertidal **Kokkelsurvey**, conducted each spring
 
 We fit two otherwise-identical `sdmTMB` models: one on a regular SPDE mesh and one on a barrier mesh, and compare.
 
-# Information on Survey:
+# 0. Information on Survey:
 
 Monster Identifier: replicate.id Monster surface area:
 
@@ -30,7 +30,7 @@ Here we can choose the survey and the species, for this case study the Kokkelsur
 ```{r settings}
 #    Settings
 
-Surveyx        = c("KokkelSurveyVoorjaar", "KokkelSurveyNajaar", "Oestersurvey")[1] 
+Surveyx        = c("KokkelSurveyVoorjaar", "KokkelSurveyNajaar", "Oestersurvey")[1] #I removed other surveys so this does not do anything right now
 crs_chosen     =    4326   #WGS84
 Species_chosen = c("Cerastoderma edule", "Macoma balthica", "Ruditapes philippinarum", "Abra tenuis")[1]
 
@@ -56,7 +56,7 @@ pathfigures   <- paste0(path,"/Fig")
 
 ```
 
-## Read Survey data
+## 0.1 Read Survey data
 
 Read the Oosterschelde and Westerschelde survey files separately, drop the Wadden Sea stations from the Westerschelde file (they share a survey but are outside this case study), and merge the two systems into one table.
 
@@ -65,13 +65,13 @@ Read the Oosterschelde and Westerschelde survey files separately, drop the Wadde
 #| warning: false
 
 #Oosterschelde
-df_WOT_OS <- read_csv(paste0(path, "/data/df_WOT_os.csv")) %>% 
+df_WOT_OS <- read_csv(paste0(path, "/data/SpeciesData/ShelfishSurvey/df_WOT_os.csv")) %>% 
   dplyr::mutate(locatie.nr = as.character(locatie.nr)) %>% 
   dplyr::mutate(Systeem = "Oosterschelde")
 
 #Westerschelde 
 #cutting of the Waddensea samples (They belong to the same survey as the Westerschelde but aren't part of the case study)
-df_WOT_WS <- read_csv(paste0(path, "/data/df_WOT_ws.csv")) %>% 
+df_WOT_WS <- read_csv(paste0(path, "/data/SpeciesData/ShelfishSurvey/df_WOT_ws.csv")) %>% 
   dplyr::filter(Latitude < 52.0) %>% 
   dplyr::mutate(locatie.nr = as.character(locatie.nr)) %>% 
   dplyr::mutate(Systeem = "Westerschelde")
@@ -101,7 +101,7 @@ df_WOT_sf  <- st_as_sf(df_WOT, coords = c("Longitude","Latitude"), crs = crs_cho
 
 ```
 
-## Read Env data
+## 0.2 Read Env data
 
 The main covariate is emersion time (*DVD -\> Droogvalduur (Dutch)*), supplied as rasters per system. We reproject both to WGS84, merge them, and load the land barrier shapefile (cropped to the study extent) for use in plotting and in the barrier mesh.
 
@@ -110,8 +110,8 @@ The main covariate is emersion time (*DVD -\> Droogvalduur (Dutch)*), supplied a
 #| warning: false
 
 #Emersion time       (Unit is percentage % of time emerged)
-dvd_OS       <- terra::rast(paste0(path, "/Data/Rasters_EmersionTimes", "/edvd_os_2021.tif"))
-dvd_WS       <- terra::rast(paste0(path, "/Data/Rasters_EmersionTimes", "/edvd_ws_2022.tif"))
+dvd_OS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EmersionTimes", "/edvd_os_2021.tif"))
+dvd_WS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EmersionTimes", "/edvd_ws_2022.tif"))
 
 #convert from rd new to wgs84
 dvd <- terra::merge(terra::sprc(dvd_OS, dvd_WS))
@@ -122,11 +122,11 @@ breaks <- c(0,5,10,15,20,25,30,35,40,45,50,60,70,80,90,100)
 
 
 #Flow Velocity      (Unit is m/sec)
-evmax_OS       <- terra::rast(paste0(path, "/Data/Rasters_EvMax", "/evmax_os_2021.tif"))
+evmax_OS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EvMax", "/evmax_os_2021.tif"))
 evmax_OS <- terra::resample(evmax_OS, dvd_OS, method = "bilinear")  # align grids
 evmax_OS <- terra::mask(evmax_OS, dvd_OS)
 
-evmax_WS <- terra::rast(paste0(path, "/Data/Rasters_EvMax", "/evmax_ws_2022.tif"))
+evmax_WS <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EvMax", "/evmax_ws_2022.tif"))
 evmax_WS <- terra::resample(evmax_WS, dvd_WS, method = "bilinear") 
 evmax_WS <- terra::mask(evmax_WS, dvd_WS)
 
@@ -137,7 +137,7 @@ ev_max <- terra::project(ev_max, "EPSG:4326", method = "bilinear")
 ev_max <- ev_max/100 
 
 #Barrier_Shapefile   -> this marks the tidal flats as barriers and that is not what we want
-Barrier            <- st_read(paste0(path, "/Data/Shapefile_Boundary", "/Nederland.shp")) 
+Barrier            <- st_read(paste0(path, "/Data/EnvironData/Shapefile_Boundary", "/Nederland.shp")) 
 st_crs(Barrier)    <- 32631  
 Barrier            <- st_transform(Barrier, crs_chosen)
 
@@ -164,9 +164,9 @@ rm(list = setdiff(ls(), c("df_WOT", "df_WOT_sf", "MB_perLocation",         #data
 
 ```
 
-# Area description
+# 1. Area description
 
-## Area description - Spatially
+## 1.1 Area description - Spatially
 
 The westerschelde is more dynamic (larger flow velocities) and has a salinity gradient, the oosterschelde is less dynamic and no salinity gradient. Both are tidal systems.
 
@@ -205,7 +205,7 @@ print(p1)
 
 ```
 
-## Area description - Table
+## 1.2 Area description - Table
 
 ```{r Table}
 
@@ -240,7 +240,7 @@ knitr::kable(env_per_system, digits = 2,
 
 ```
 
-# Model
+# 2. Model
 
 Prepare data for model
 
@@ -291,7 +291,7 @@ dat <- add_utm_columns(dat, ll_names = c("Longitude", "Latitude"),
 
 ```
 
-## Constructing a Barrier Mesh
+## 2.1 Constructing a Barrier Mesh
 
 Build a regular SPDE mesh first, then derive a barrier mesh from it by passing the land polygon to `add_barrier_mesh()`. The `range_fraction` shrinks the spatial range across the barrier (lower = stronger barrier), so correlation no longer leaks across land.
 
@@ -321,7 +321,7 @@ barrier_mesh <- sdmTMBextra::add_barrier_mesh(
 
 ```
 
-## Fitting a model
+## 2.2 Fitting the models
 
 ```{r Model}
 
@@ -346,9 +346,9 @@ fit_barrier <- sdmTMB(
 
 ```
 
-## Predicting with model
+## 2.3 Setting up Prediction grid
 
-Build the prediction grid from the emersion-time raster (so every prediction cell has a real `dvd` value), and predict from each model. I remove subtidal area from prediction grid, as the survey is intertidal.
+Build the prediction grid from the emersion-time raster (so every prediction cell has a `dvd` value), and predict from each model. I remove subtidal area from prediction grid, as the survey is intertidal.
 
 ```{r Prediction-grid}
 
@@ -392,9 +392,9 @@ cat("Prediction cells:", nrow(grid), "\n")
 
 ```
 
-# Comparison
+# 3. Comparison
 
-## Performance
+## 3.1 Performance
 
 ```{r Model Performance}
 #| message: false
@@ -420,9 +420,13 @@ DHARMa::testResiduals(r2)
 #DHARMa::testSpatialAutocorrelation(r1, x = dat$X, y = dat$Y)
 #DHARMa::testSpatialAutocorrelation(r2, x = dat$X, y = dat$Y)
 
+#S
+tidy(fit_plain,   "ran_pars", conf.int = TRUE)
+tidy(fit_barrier, "ran_pars", conf.int = TRUE)
+
 ```
 
-## Prediction
+## 3.2 Prediction
 
 ```{r Prediction-predict}
 
@@ -434,7 +438,7 @@ pred_barrier$density <- exp(pred_barrier$est)
 
 ```
 
-## Predicted density surfaces
+## 3.3 Spatial prediction plots
 
 ```{r Prediction-maps, fig.width=11, fig.height=5}
 

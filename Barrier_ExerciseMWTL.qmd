@@ -1,0 +1,524 @@
+---
+title: "Barrier_Exercise_MWTL"
+author: "Alicia Hamer"
+format: html
+editor: visual
+execute: 
+  echo: true
+  eval: true
+  cache: false
+---
+
+# To Do:
+
+- Empty stations need to be filled
+- Grevelingen stations need to be removed
+
+# Case study: shellfish in two tidal inlets separated by a barrier (MWTL survey)
+
+The Oosterschelde and Westerschelde are two adjacent tidal systems in the Dutch Delta. Although they are spatially close, they are physically separated by land so spatial correlation in benthos density should *not* flow freely across the peninsula, even where two sampling points are close in straight-line distance. This case study tests whether encoding that barrier in the spatial mesh improves a species distribution model.
+
+This version uses the **MWTL macrozoobenthos survey** (MWTL_MZB) instead of the WOT shellfish survey. The MWTL survey is not restricted to mudflats, so it should sample a broader range of the study area. We model **density (N_m2)** rather than raw counts, using a Tweedie family.
+
+We fit two otherwise-identical `sdmTMB` models: one on a regular SPDE mesh and one on a barrier mesh, and compare.
+
+# 0. Information on Survey:
+
+## Settings
+
+```{r settings}
+#    Settings
+
+crs_chosen     =    4326   #WGS84
+Species_chosen = c( "Peringia ulvae","Corophium volutator",       #littoral species
+                   "Pygospio elegans","Heteromastus filiformis"   #sublittoral species
+                   )[1]   
+Season_chosen  = "nj"                      # focus on najaar (autumn)
+Year_end       = 2009                      #sampling design changed in 2009 
+
+```
+
+## Load libraries
+
+```{r libs}
+#| message: false
+#| warning: false
+#| cache: false
+
+x <- c("ggplot2", "tidyverse", "vegan", "sf", "raster", "terra", "tidyterra","glmmTMB",
+       "dplyr", "tidyr", "sdmTMB", "sdmTMBextra", "DHARMa", "patchwork")
+invisible(lapply(x, require, character.only = TRUE))
+
+#Set Theme
+theme_set(theme_bw())
+
+#Directories
+path          <- getwd()
+pathfigures   <- paste0(path,"/Fig")
+
+```
+
+## 0.1 Read Survey data
+
+Read the Oosterschelde and Westerschelde MWTL survey files separately, then merge.
+
+Columnnames key: - `Valid_name` = accepted species name - `N_m2` = density per m2 - `N` = raw count - `Oppervlakte_m2` = sampled area - `Tuig` = gear - `Seizoen` = season (`vj` / `nj`) - `StationID` = station identifier - `Dvd` = emersion time (extracted, not measured during survey) - `EvMax` = Maximum flow velocity (extracted, not measured during survey)
+
+```{r Read In Survey}
+#| message: false
+#| warning: false
+
+#Oosterschelde
+df_MWTL_OS <- read_csv(paste0(path, "/data/SpeciesData/BenthosSurvey/mwtl_os.csv")) %>%   # <<< set filename
+  dplyr::mutate(StationID = as.character(StationID)) %>%
+  dplyr::mutate(Systeem = "Oosterschelde")
+
+#Westerschelde
+#cutting off the Waddensea samples (same survey but not part of the case study)
+df_MWTL_WS <- read_csv(paste0(path, "/data/SpeciesData/BenthosSurvey/mwtl_ws.csv")) %>%   # <<< set filename
+  dplyr::filter(Y < 52.0) %>%                       # Y is Latitude in this file
+  dplyr::mutate(StationID = as.character(StationID)) %>%
+  dplyr::mutate(Systeem = "Westerschelde")
+
+#Merge the two systems
+df_MWTL <- dplyr::bind_rows(df_MWTL_OS, df_MWTL_WS)
+
+# Rename to neutral internal names so the rest of the script is stable.
+# (Longitude/Latitude kept as explicit columns; X/Y get reused later for UTM.)
+df_MWTL <- df_MWTL %>%
+  dplyr::rename(
+    Longitude = X,
+    Latitude  = Y,
+    dvd       = Dvd,
+    evmax     = Evmax
+  )
+
+#Merge sampling gears into coarse classes (adjust to the gear codes actually present)
+df_MWTL <- df_MWTL %>%
+  mutate(
+    Tuig = dplyr::case_when(
+      Tuig %in% c("STEEKBS", "Steekbuis", "steekbuis (pvc-buis)") ~ "Steekbuis",
+      Tuig %in% c("BOXCORE", "Boxcorer")                          ~ "Boxcore",
+      TRUE                                                        ~ "Overig"
+    ),
+    Tuig = factor(Tuig)
+  ) %>%
+  dplyr::filter(Projecten == "MWTL_MZB") %>%     # keep only the MWTL macrozoobenthos project
+  dplyr::filter(Seizoen == Season_chosen)         # focus on nj
+
+#End at selected year (in case you want it up until the survey design change in 2009 (set in settings in first section))
+df_MWTL <- df_MWTL %>% dplyr::filter(Year <= Year_end)
+
+#Turn it into a spatial object
+df_MWTL_sf  <- st_as_sf(df_MWTL, coords = c("Longitude","Latitude"),
+                        crs = crs_chosen, remove = FALSE)
+
+
+```
+
+## 0.2 Read Env data
+
+The main covariate is emersion time (*DVD -\> Droogvalduur (Dutch)*), supplied as rasters per system. We reproject both to WGS84, merge them, and load the land barrier shapefile (cropped to the study extent) for use in plotting and in the barrier mesh.
+
+```{r Read in Environmental Data}
+#| message: false
+#| warning: false
+
+#Emersion time       (Unit is percentage % of time emerged)
+dvd_OS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EmersionTimes", "/edvd_os_2021.tif"))
+dvd_WS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EmersionTimes", "/edvd_ws_2022.tif"))
+
+#Flow Velocity (Unit is m/sec)
+#convert from rd new to wgs84
+dvd <- terra::merge(terra::sprc(dvd_OS, dvd_WS))
+dvd <- terra::project(dvd, "EPSG:4326", method = "bilinear")
+
+# Create breaks
+breaks <- c(0,5,10,15,20,25,30,35,40,45,50,60,70,80,90,100)
+
+
+#Flow Velocity      (Unit is m/sec)
+evmax_OS       <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EvMax", "/evmax_os_2021.tif"))
+evmax_OS <- terra::resample(evmax_OS, dvd_OS, method = "bilinear")  # align grids
+evmax_OS <- terra::mask(evmax_OS, dvd_OS)
+
+evmax_WS <- terra::rast(paste0(path, "/Data/EnvironData/Rasters_EvMax", "/evmax_ws_2022.tif"))
+evmax_WS <- terra::resample(evmax_WS, dvd_WS, method = "bilinear") 
+evmax_WS <- terra::mask(evmax_WS, dvd_WS)
+
+#convert from rd new to wgs84
+ev_max <- terra::merge(terra::sprc(evmax_OS, evmax_WS))
+ev_max <- terra::project(ev_max, "EPSG:4326", method = "bilinear")
+#very important step I forgot! 
+ev_max <- ev_max/100 
+
+#Barrier_Shapefile   -> this marks the tidal flats as barriers and that is not what we want
+Barrier            <- st_read(paste0(path, "/Data/EnvironData/Shapefile_Boundary", "/Nederland.shp")) 
+st_crs(Barrier)    <- 32631  
+Barrier            <- st_transform(Barrier, crs_chosen)
+
+#Cut it
+Barrier           <- st_geometry(Barrier)
+Barrier           <- st_make_valid(Barrier)
+Barrier           <- st_crop(Barrier, c(xmin = 3.35, ymin = 51.25, xmax = 4.30, ymax = 51.75))
+
+#Construct barrier from Emersion time (dvd) grid layer
+land_rast <- terra::ifel(is.na(dvd), 1, NA)        # 1 where dvd is NA (= land), NA elsewhere
+land      <- terra::as.polygons(land_rast)          # polygon of the land
+land      <- sf::st_as_sf(land)                      # to sf, inherits dvd's CRS (4326)
+land      <- sf::st_make_valid(land)
+#plot(sf::st_geometry(land), col = "tomato", border = "grey40")
+
+Barrier   <- land
+
+
+rm(list = setdiff(ls(), c("df_MWTL", "df_MWTL_sf",                         #data
+                          "Barrier", "dvd", "ev_max",                      #spatial data
+                          "path", "pathfigures",                           #paths
+                          "Species_chosen", "Surveyx", "breaks"            #settings
+                          )))
+
+```
+
+# 1. Area description
+
+## 1.1 Area description - Spatially
+
+The westerschelde is more dynamic (larger flow velocities) and has a salinity gradient, the oosterschelde is less dynamic and no salinity gradient. Both are tidal systems.
+
+The map below shows the emersion-time surface, the land barrier separating the two inlets, and the survey stations coloured by sampling gear.
+
+```{r plot descriptive}
+#| message: false
+#| echo: false
+
+p1 <- ggplot() +
+  tidyterra::geom_spatraster(data = dvd) +
+  scale_fill_binned(palette =  c("#08306B","#08519C","#2171B5","#4292C6","#6BAED6",
+                                 "#9ECAE1","#C6DBEF","#DEEBF7","#F7FBFF",
+                                 "lightyellow","lightyellow1","lightyellow2",
+                                 "lightyellow3","lightyellow4", "yellow4",NA),
+                    breaks = breaks,
+                    na.value = "white") +
+  geom_sf(data = Barrier, fill = "grey85", colour = "grey40", linewidth = 0.2) +
+  geom_sf(data = df_MWTL_sf, aes(colour = Tuig), size = 0.6, alpha = 0.6) +
+  coord_sf(xlim = c(3.35, 4.30), ylim = c(51.25, 51.75), expand = FALSE) +
+  labs(x = NULL, y = NULL) +
+  theme_bw()
+
+print(p1)
+
+```
+
+## 1.2 Area description - Table
+
+```{r Table}
+#| message: false
+#| echo: false
+
+# One row per sampling event. In MWTL long format there is no replicate.id,
+# so an event is one Station x Date (x gear). Build an event key.
+df_MWTL <- df_MWTL %>%
+  dplyr::mutate(event_id = paste(StationID, Date, Tuig, sep = "_"))
+
+events_tagged <- df_MWTL %>%
+  dplyr::distinct(event_id, .keep_all = TRUE)
+
+# Samples per system per year
+samples_per_system <- events_tagged %>%
+  dplyr::count(Year, Systeem) %>%
+  tidyr::pivot_wider(names_from = Systeem, values_from = n, values_fill = 0) %>%
+  dplyr::arrange(Year)
+
+knitr::kable(samples_per_system,
+             caption = "Number of survey samples per system per year")
+
+# Sampled environment (dvd, evmax) per system
+env_per_system <- events_tagged %>%
+  dplyr::filter(!is.na(dvd), !is.na(evmax)) %>%
+  dplyr::group_by(Systeem) %>%
+  dplyr::summarise(
+    n          = dplyr::n(),
+    dvd_mean   = mean(dvd),   dvd_sd   = sd(dvd),
+    evmax_mean = mean(evmax), evmax_sd = sd(evmax),
+    .groups = "drop"
+  )
+
+knitr::kable(env_per_system, digits = 2,
+             caption = "Sampled emersion time (dvd) and max flow velocity (evmax) by system")
+```
+
+## 1.3 Look at species' distribution over years
+
+See where species is located per year and if this changes
+
+```{r Species}
+#| message: false
+#| echo: false
+#| fig-height: 12
+#| fig-width: 9
+
+#look at data
+#up until 2009 only? This is when they changed survey design so maybe that helps
+df_plot <- df_MWTL_sf %>% dplyr::filter(Year < 2010)
+
+ggplot(df_plot, aes(Longitude, Latitude, size = N_m2, colour = log(N_m2 + 1))) +
+  geom_point() +
+  facet_wrap(~Year, ncol = 3) +
+  ggtitle(paste(Species_chosen))
+
+
+```
+
+# 2. Model
+
+Prepare data for model
+
+```{r Data processing}
+
+
+# One row per event, carrying the covariates/metadata
+events <- df_MWTL %>%
+  group_by(event_id) %>%
+  dplyr::summarise(
+    Year      = first(Year),
+    Longitude = first(Longitude),
+    Latitude  = first(Latitude),
+    dvd       = first(dvd),
+    evmax     = first(evmax),
+    Tuig      = first(Tuig),
+    Seizoen   = first(Seizoen),
+    Systeem   = first(Systeem),
+    .groups = "drop"
+  )
+
+# Density of the chosen species per event (from N_m2)
+sp_density <- df_MWTL %>%
+  dplyr::filter(Valid_name == Species_chosen) %>%
+  group_by(event_id) %>%
+  dplyr::summarise(density = sum(N_m2, na.rm = TRUE), .groups = "drop")
+
+dat <- events %>%
+  left_join(sp_density, by = "event_id") %>%
+  mutate(density = ifelse(is.na(density), 0, density))   # true absences -> 0 density
+
+cat("Events with species present:", sum(dat$density > 0),
+    " | absences:", sum(dat$density == 0), "\n")
+
+dat <- dat %>%
+  filter(!is.na(dvd), !is.na(evmax),
+         !is.na(Longitude), !is.na(Latitude)) %>%
+  mutate(
+    dvd_s    = as.numeric(scale(dvd)),
+    evmax_s  = as.numeric(scale(evmax)),
+    gear     = factor(Tuig),
+    fYear    = factor(Year)
+  )
+
+## Project lon/lat -> metric CRS (UTM 31N) so mesh & range are in km.
+dat <- add_utm_columns(dat, ll_names = c("Longitude", "Latitude"),
+                       utm_crs = 32631)   # adds X, Y (km)
+
+
+
+```
+
+## 2.1 Constructing a Barrier Mesh
+
+Build a regular SPDE mesh first, then derive a barrier mesh from it by passing the land polygon to `add_barrier_mesh()`. The `range_fraction` shrinks the spatial range across the barrier (lower = stronger barrier), so correlation no longer leaks across land.
+
+```{r mesh}
+
+#regular mesh
+mesh <- sdmTMB::make_mesh(dat, xy_cols = c("X", "Y"), cutoff = 0.75)
+plot(mesh); cat("Mesh vertices:", mesh$mesh$n, "\n")
+plot(mesh$mesh, main = "Regular mesh", asp = 1)
+
+Barrier <- sf::st_sf(geometry = sf::st_geometry(Barrier))
+Barrier_km <- sf::st_transform(Barrier, 32631)          # metres
+sf::st_geometry(Barrier_km) <- sf::st_geometry(Barrier_km) * 1e-3   # -> km to match mesh X/Y
+sf::st_crs(Barrier_km) <- NA
+
+#barrier mesh
+barrier_mesh <- sdmTMBextra::add_barrier_mesh(
+  spde_obj    = mesh,
+  barrier_sf  = Barrier_km,
+  range_fraction = 0.2,
+  proj_scaling = 1,
+  plot = TRUE
+)
+
+
+#plot(barrier_mesh$mesh, main = "Barrier mesh")
+
+```
+
+## 2.2 Fitting the models
+
+```{r Model}
+
+fit_plain <- sdmTMB(
+  density ~ poly(dvd_s, 2) + poly(evmax_s, 2) + fYear,
+  data   = dat,
+  mesh   = mesh,
+  family = tweedie(link = "log"),
+  spatial = "on"
+)
+
+
+fit_barrier <- sdmTMB(
+  density ~ poly(dvd_s, 2) + poly(evmax_s, 2) + fYear,
+  data   = dat,
+  mesh   = barrier_mesh,
+  family = tweedie(link = "log"),
+  spatial = "on"
+)
+
+```
+
+## 2.3 Setting up Prediction grid
+
+```{r Prediction-grid}
+
+# Coarsen the emersion raster a little so prediction is quick,
+
+# --- dvd grid
+dvd_coarse     <- terra::aggregate(dvd, fact = 4, fun = "mean", na.rm = TRUE)
+grid           <- terra::as.data.frame(dvd_coarse, xy = TRUE, na.rm = TRUE)
+names(grid)[3] <- "dvd"
+
+# --- pull evmax 
+evmax_coarse <- terra::resample(ev_max, dvd_coarse, method = "bilinear")
+grid$evmax   <- terra::extract(evmax_coarse,
+                               grid[, c("x", "y")])[, 2] 
+
+# drop cells where evmax is missing and filter out subtidal area for prediction grid -> not sure is this is best practice
+grid <- grid[!is.na(grid$evmax), ]
+#grid <- grid[grid$dvd > 0 & grid$dvd < 97, ]  #not sure if neccesary
+
+# --- scale BOTH using the fitting means/sds ---
+dvd_mean   <- mean(dat$dvd,   na.rm = TRUE); dvd_sd   <- sd(dat$dvd,   na.rm = TRUE)
+evmax_mean <- mean(dat$evmax, na.rm = TRUE); evmax_sd <- sd(dat$evmax, na.rm = TRUE)
+
+grid <- grid %>%
+  dplyr::rename(Longitude = x, Latitude = y) %>%
+  dplyr::mutate(
+    dvd_s   = (dvd   - dvd_mean)   / dvd_sd,
+    evmax_s = (evmax - evmax_mean) / evmax_sd
+  )
+
+# gear still held at reference level 
+grid$gear <- factor(levels(dat$gear)[1], levels = levels(dat$gear))
+
+prediction_year <- 2009
+grid$fYear <- factor(prediction_year, levels = levels(dat$fYear))
+
+grid <- add_utm_columns(grid, ll_names = c("Longitude", "Latitude"),
+                        utm_crs = 32631)
+
+cat("Prediction cells:", nrow(grid), "\n")
+
+```
+
+# 3. Comparison
+
+## 3.1 Performance
+
+```{r Model Performance}
+#| message: false
+
+sanity(fit_plain)
+sanity(fit_barrier)
+
+print(fit_plain)
+print(fit_barrier)
+
+# AIC 
+AIC(fit_plain, fit_barrier)  
+
+#DHARMa residuals  
+s1 <- simulate(fit_plain,   nsim = 300, type = "mle-mvn")
+s2 <- simulate(fit_barrier, nsim = 300, type = "mle-mvn")
+
+r1 <- dharma_residuals(s1, fit_plain,   return_DHARMa = TRUE)
+r2 <- dharma_residuals(s2, fit_barrier, return_DHARMa = TRUE)
+
+#DHARMa::testResiduals(r1)
+#DHARMa::testResiduals(r2)
+#DHARMa::testSpatialAutocorrelation(r1, x = dat$X, y = dat$Y)
+#DHARMa::testSpatialAutocorrelation(r2, x = dat$X, y = dat$Y)
+
+#S
+tidy(fit_plain, "ran_pars", conf.int = TRUE)
+tidy(fit_barrier, "ran_pars", conf.int = TRUE)
+
+```
+
+## 3.2 Prediction
+
+```{r Prediction-predict}
+
+pred_plain   <- predict(fit_plain,   newdata = grid)
+pred_barrier <- predict(fit_barrier, newdata = grid)
+
+pred_plain$density   <- exp(pred_plain$est)
+pred_barrier$density <- exp(pred_barrier$est)
+
+```
+
+## 3.3 Conditional effects
+
+Can't get these to work when rendering :(
+
+```{Conditional effects}
+
+#these can take a bit to load
+visreg::visreg(fit_plain, "dvd_s")
+visreg::visreg(fit_plain, "evmax_s")
+
+#ggeffects::ggeffect(fit_plain, "dvd_s [0:10 by=1]") %>%  plot()
+
+print(plot(PartDvd))
+#print(PartEvmax)
+
+
+
+```
+
+## 3.4 Spatial prediction plots
+
+```{r Prediction-maps, fig.width=11, fig.height=5}
+
+zlim <- range(c(pred_plain$est, pred_barrier$est), na.rm = TRUE)
+
+base_map <- function(df, title) {
+  ggplot(df, aes(Longitude, Latitude, fill = est)) +
+    geom_sf(data = Barrier, fill = "grey85", colour = "grey40",
+            linewidth = 0.2, inherit.aes = FALSE) +
+    geom_raster() +
+    scale_fill_viridis_c(name = "log expected\ncount",
+                         limits = zlim) +             
+    coord_sf(xlim = c(3.35, 4.30), ylim = c(51.25, 51.75), expand = FALSE) +
+    labs(title = title, x = NULL, y = NULL) +
+    theme_bw()
+}
+
+p_plain   <- base_map(pred_plain,   paste0(Species_chosen, " Regular mesh"))
+p_barrier <- base_map(pred_barrier, paste0(Species_chosen, " Barrier mesh"))
+
+library(patchwork)
+p_plain + p_barrier
+
+
+print(fit_plain)
+print(fit_barrier)
+
+#nice to hear our sampling effore is good enough to .. although MWTL is not every year so sruely if you want to get temproal shifts in distribution it could cause issues? 
+
+```
+
+# Reccomendations
+
+The DFS data could be added to explore if mesh/barrier mesh shows a difference in fish species, maybe moving species could react differently?
+
+Or would a fish survey run against the same problems?
